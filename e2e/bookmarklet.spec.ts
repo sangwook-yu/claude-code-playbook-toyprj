@@ -4,6 +4,7 @@ import {
   bookmarkletCode,
   centerSeat,
   frontLeftSeat,
+  movableCenterSeat,
   serveFakeCgv,
   type FakeState,
 } from "./fake-cgv";
@@ -53,7 +54,13 @@ async function openPanel(page: Page) {
 /** 조건 하나를 등록한다. 기본은 중간 중앙 2연석, 하루 전체 시간대. */
 async function addCondition(
   page: Page,
-  options: { from?: string; to?: string; seats?: string; region?: string } = {},
+  options: {
+    from?: string;
+    to?: string;
+    seats?: string;
+    region?: string;
+    includeMovable?: boolean;
+  } = {},
 ) {
   await page.getByLabel("영화").selectOption({ label: "오디세이" });
   await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
@@ -64,6 +71,10 @@ async function addCondition(
   if (options.region) {
     await page.getByText("중간 중앙", { exact: true }).click();
     await page.getByText(options.region, { exact: true }).click();
+  }
+
+  if (options.includeMovable) {
+    await page.getByLabel("이동식(장애인·동반석) 좌석도 포함").check();
   }
 
   await page.getByRole("button", { name: "조건 추가" }).click();
@@ -330,4 +341,199 @@ test("영화와 지점을 고르지 않고 조건 추가를 누르면 에러가 
   await page.getByRole("button", { name: "조건 추가" }).click();
 
   await expect(page.getByText("영화와 지점을 모두 골라 주세요.")).toBeVisible();
+});
+
+test("아이맥스가 아닌 상영관의 자리는 알람을 내지 않는다", async ({ page }) => {
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  // 같은 지점의 일반관(1관)에 자리가 났다. 조건은 아이맥스만 본다.
+  state.schedules = [
+    {
+      scnsNo: "001",
+      scnSseq: "3",
+      startTime: "1730",
+      seats: [centerSeat("B", 5, true), centerSeat("B", 6, true)],
+      screenGrade: "01",
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+
+  await expect(page.getByTestId("condition")).toContainText("회차 0개 확인");
+  await expect(page.getByTestId("alarm")).toHaveCount(0);
+});
+
+test("OS 알람 버튼은 켜짐/꺼짐을 토글하고, 꺼져 있으면 알림을 보내지 않는다", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["notifications"]);
+  await page.addInitScript(() => {
+    const sent: string[] = [];
+    class RecordingNotification {
+      static permission = "granted";
+      static requestPermission() {
+        return Promise.resolve("granted");
+      }
+      constructor(title: string) {
+        sent.push(title);
+      }
+    }
+    Object.defineProperty(window, "Notification", { value: RecordingNotification, writable: true });
+    Object.defineProperty(window, "__osNotifications", { value: sent, writable: true });
+  });
+
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  const notifyButton = page.getByRole("button", { name: "OS 알람" });
+  await expect(notifyButton).toBeVisible();
+  await expect(notifyButton).toHaveClass(/on/);
+
+  // 꺼둔 상태에서 자리가 나면 화면 알람은 뜨지만 OS 알림은 안 간다.
+  await notifyButton.click();
+  await expect(notifyButton).not.toHaveClass(/on/);
+
+  state.schedules = withCenterPair().schedules;
+  await page.getByRole("button", { name: "지금 확인" }).click();
+  await expect(page.getByTestId("alarm")).toHaveCount(1);
+
+  let sent = await page.evaluate(
+    () => (window as unknown as { __osNotifications: string[] }).__osNotifications,
+  );
+  expect(sent).toHaveLength(0);
+
+  // 다시 켜면 이후 자리에는 OS 알림도 간다.
+  await notifyButton.click();
+  await expect(notifyButton).toHaveClass(/on/);
+
+  state.schedules = [
+    {
+      scnsNo: "004",
+      scnSseq: "5",
+      startTime: "2100",
+      seats: [centerSeat("D", 5, true), centerSeat("D", 6, true)],
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+  await expect(page.getByTestId("alarm")).toHaveCount(2);
+
+  sent = await page.evaluate(
+    () => (window as unknown as { __osNotifications: string[] }).__osNotifications,
+  );
+  expect(sent).toHaveLength(1);
+});
+
+test("이동식(장애인·동반석) 좌석은 조건에 맞아도 알람을 내지 않는다", async ({ page }) => {
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  // 중간 중앙에 이동식 좌석 두 자리가 이어져 비어 있다.
+  state.schedules = [
+    {
+      scnsNo: "004",
+      scnSseq: "4",
+      startTime: "1930",
+      seats: [movableCenterSeat("A", 17, true), movableCenterSeat("A", 18, true)],
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+  await expect(page.getByTestId("alarm")).toHaveCount(0);
+});
+
+test("이동식 좌석이 일반석 사이에 끼어 있으면 그 자리에서 이어짐이 끊긴다", async ({ page }) => {
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  // B5, B7은 일반석이고 B6은 이동식이다. 최소 연석 2를 만족하는 일반석 조합이 없다.
+  state.schedules = [
+    {
+      scnsNo: "004",
+      scnSseq: "4",
+      startTime: "1930",
+      seats: [centerSeat("B", 5, true), movableCenterSeat("B", 6, true), centerSeat("B", 7, true)],
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+  await expect(page.getByTestId("alarm")).toHaveCount(0);
+});
+
+test("이동식 좌석 포함을 체크하면 그 자리로도 알람이 뜬다", async ({ page }) => {
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page, { includeMovable: true });
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+  await expect(page.getByTestId("condition")).toContainText("이동식 포함");
+
+  state.schedules = [
+    {
+      scnsNo: "004",
+      scnSseq: "4",
+      startTime: "1930",
+      seats: [movableCenterSeat("A", 17, true), movableCenterSeat("A", 18, true)],
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+
+  const alarm = page.getByTestId("alarm");
+  await expect(alarm).toHaveCount(1);
+  await expect(alarm).toContainText("A17–A18 (2석)");
+});
+
+test("확인 주기를 바꾸면 그 주기로 다시 확인이 돈다", async ({ page }) => {
+  test.setTimeout(60_000);
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  const intervalInput = page.locator(".intervalbox input");
+  await expect(intervalInput).toHaveValue("60");
+
+  await intervalInput.fill("30");
+  await intervalInput.blur();
+  await expect(intervalInput).toHaveValue("30");
+
+  // 자리를 풀어두면, 수동으로 "지금 확인"을 누르지 않아도 짧아진 주기 안에 알람이 뜬다.
+  state.schedules = withCenterPair().schedules;
+  await expect(page.getByTestId("alarm")).toHaveCount(1, { timeout: 40_000 });
+});
+
+test("30초보다 작은 값을 넣으면 30초로 맞춰진다", async ({ page }) => {
+  await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+
+  const intervalInput = page.locator(".intervalbox input");
+  await intervalInput.fill("3");
+  await intervalInput.blur();
+
+  await expect(intervalInput).toHaveValue("30");
+});
+
+test("한 클릭에 0.5분(30초)씩 오르내린다", async ({ page }) => {
+  await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+
+  const intervalInput = page.locator(".intervalbox input");
+  await expect(intervalInput).toHaveValue("60");
+
+  await intervalInput.focus();
+  await intervalInput.press("ArrowUp");
+  await expect(intervalInput).toHaveValue("90");
+
+  await intervalInput.press("ArrowDown");
+  await intervalInput.press("ArrowDown");
+  await expect(intervalInput).toHaveValue("30");
 });

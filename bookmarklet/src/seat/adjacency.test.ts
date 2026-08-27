@@ -7,13 +7,20 @@ import type { Hall, Seat } from "./types";
 /** 가로 0~29, 세로 0~29인 상영관. 3등분 경계는 10과 20이다. */
 const hall: Hall = { xStart: 0, xEnd: 30, yStart: 0, yEnd: 30 };
 
-function seat(row: string, number: number, free: boolean, x: number, y: number): Seat {
-  return { row, number, free, x, y };
+function seat(
+  row: string,
+  number: number,
+  free: boolean,
+  x: number,
+  y: number,
+  movable = false,
+): Seat {
+  return { row, number, free, movable, x, y };
 }
 
 /** 중간 중앙 칸 한가운데 놓인 좌석. 구역이 아니라 이어짐만 보는 테스트에 쓴다. */
-function middleCenter(row: string, number: number, free: boolean): Seat {
-  return seat(row, number, free, 15, 15);
+function middleCenter(row: string, number: number, free: boolean, movable = false): Seat {
+  return seat(row, number, free, 15, 15, movable);
 }
 
 describe("regionOf", () => {
@@ -36,6 +43,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toHaveLength(1);
@@ -54,6 +62,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs.map((run) => run.numbers)).toEqual([
@@ -68,6 +77,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toEqual([]);
@@ -79,6 +89,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toEqual([]);
@@ -90,6 +101,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toEqual([]);
@@ -101,6 +113,7 @@ describe("findRuns", () => {
       hall,
       ["front-left", "middle-center"],
       2,
+      false,
     );
 
     expect(runs).toHaveLength(1);
@@ -113,6 +126,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toEqual([]);
@@ -129,6 +143,7 @@ describe("findRuns", () => {
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runs).toHaveLength(1);
@@ -136,28 +151,72 @@ describe("findRuns", () => {
   });
 
   it("한 자리만 필요하면 홀로 있는 빈자리도 찾는다", () => {
-    const runs = findRuns([middleCenter("B", 5, true)], hall, ["middle-center"], 1);
+    const runs = findRuns([middleCenter("B", 5, true)], hall, ["middle-center"], 1, false);
 
     expect(runs).toHaveLength(1);
     expect(describeRun(runs[0])).toBe("B5 (1석)");
+  });
+
+  it("이동식 좌석을 포함하지 않으면 빼고 센다", () => {
+    const runs = findRuns(
+      [middleCenter("B", 5, true), middleCenter("B", 6, true, true), middleCenter("B", 7, true)],
+      hall,
+      ["middle-center"],
+      2,
+      false,
+    );
+
+    expect(runs).toEqual([]);
+  });
+
+  it("이동식 좌석을 포함하면 다른 자리와 똑같이 이어진 것으로 본다", () => {
+    const runs = findRuns(
+      [middleCenter("B", 5, true), middleCenter("B", 6, true, true)],
+      hall,
+      ["middle-center"],
+      2,
+      true,
+    );
+
+    expect(runs).toHaveLength(1);
+    expect(runs[0].numbers).toEqual([5, 6]);
   });
 });
 
 describe("runKey", () => {
   it("같은 덩어리는 같은 값을 준다", () => {
-    const a = findRuns([middleCenter("B", 5, true), middleCenter("B", 6, true)], hall, ["middle-center"], 2);
-    const b = findRuns([middleCenter("B", 6, true), middleCenter("B", 5, true)], hall, ["middle-center"], 2);
+    const a = findRuns(
+      [middleCenter("B", 5, true), middleCenter("B", 6, true)],
+      hall,
+      ["middle-center"],
+      2,
+      false,
+    );
+    const b = findRuns(
+      [middleCenter("B", 6, true), middleCenter("B", 5, true)],
+      hall,
+      ["middle-center"],
+      2,
+      false,
+    );
 
     expect(runKey(a[0])).toBe(runKey(b[0]));
   });
 
   it("자리가 늘어나면 다른 값이 된다", () => {
-    const two = findRuns([middleCenter("B", 5, true), middleCenter("B", 6, true)], hall, ["middle-center"], 2);
+    const two = findRuns(
+      [middleCenter("B", 5, true), middleCenter("B", 6, true)],
+      hall,
+      ["middle-center"],
+      2,
+      false,
+    );
     const three = findRuns(
       [middleCenter("B", 5, true), middleCenter("B", 6, true), middleCenter("B", 7, true)],
       hall,
       ["middle-center"],
       2,
+      false,
     );
 
     expect(runKey(two[0])).not.toBe(runKey(three[0]));

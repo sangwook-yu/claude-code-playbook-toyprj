@@ -25,8 +25,8 @@ import { describeRun, findRuns, REGION_LABELS, REGIONS, runKey, type Region } fr
 import { loadConditions, saveConditions, type WatchCondition, type WatchStatus } from "./watch";
 
 const BOOKING_URL = "https://cgv.co.kr/cnm/movieBook/movie";
-/** 실제 CGV를 보는 만큼 넉넉한 간격으로 돈다. */
-const INTERVAL_MS = 60_000;
+/** 실제 CGV를 보는 만큼 넉넉한 간격을 기본값으로 둔다. 사용자가 줄일 수 있다. */
+const DEFAULT_INTERVAL_SECONDS = 60;
 /** 한 조건 안에서 회차를 이어 조회할 때 두는 간격. */
 const BETWEEN_SCHEDULES_MS = 400;
 const MAX_ALARMS = 30;
@@ -65,6 +65,10 @@ export function start(): void {
   let sitesLoading = false;
   let error: string | null = null;
   let permission: NotifyPermission = currentPermission();
+  // 권한이 이미 허용된 채로 시작했다면(전에 켜둔 적이 있다면) 기본은 켠 상태다.
+  let osNotifyEnabled = true;
+  let intervalSeconds = DEFAULT_INTERVAL_SECONDS;
+  let timer = 0;
   const statuses = new Map<string, WatchStatus>();
   /** 조건마다 지난번에 본 자리 덩어리. */
   const seen = new Map<string, Set<string>>();
@@ -107,10 +111,11 @@ export function start(): void {
       conditions: conditions.map((condition) => {
         const line = statusLine(condition);
         const regionNames = condition.regions.map((region) => REGION_LABELS[region]).join(", ");
+        const movableNote = condition.includeMovable ? " · 이동식 포함" : "";
         return {
           id: condition.id,
           title: `${condition.movNm} · ${condition.siteNm}`,
-          detail: `${ymd(condition.date)} ${hhmm(condition.fromTime)}–${hhmm(condition.toTime)} · ${regionNames} · ${condition.minimumSeats}석 이상`,
+          detail: `${ymd(condition.date)} ${hhmm(condition.fromTime)}–${hhmm(condition.toTime)} · ${regionNames} · ${condition.minimumSeats}석 이상${movableNote}`,
           status: line.text,
           statusTone: line.tone,
           active: condition.active,
@@ -125,6 +130,8 @@ export function start(): void {
       watching: active > 0 ? `감시 중 · 조건 ${active}개` : "감시 중인 조건이 없습니다",
       watchingActive: active > 0,
       permission,
+      osNotifyOn: osNotifyEnabled,
+      intervalSeconds,
     };
   }
 
@@ -168,14 +175,27 @@ export function start(): void {
       alarms = [];
       draw();
     },
-    onAskPermission() {
+    onToggleNotify() {
+      if (permission === "granted") {
+        // 브라우저 권한은 코드로 되돌릴 수 없다. 실제로 보낼지만 앱 안에서 끈다.
+        osNotifyEnabled = !osNotifyEnabled;
+        draw();
+        return;
+      }
+      if (permission !== "default") return;
       void requestPermission().then((next) => {
         permission = next;
+        if (next === "granted") osNotifyEnabled = true;
         draw();
       });
     },
     onCheckNow() {
       void checkOnce();
+    },
+    onSetInterval(seconds) {
+      intervalSeconds = seconds;
+      restartTimer();
+      draw();
     },
     onClose() {
       window.clearInterval(timer);
@@ -211,6 +231,7 @@ export function start(): void {
       toTime: draft.toTime.replace(":", ""),
       regions: draft.regionIds as Region[],
       minimumSeats: draft.minimumSeats,
+      includeMovable: draft.includeMovable,
       active: true,
     };
   }
@@ -302,6 +323,8 @@ export function start(): void {
         seatResult.data.hall,
         condition.regions,
         condition.minimumSeats,
+        // 이 필드가 생기기 전에 저장된 조건은 기본값(이동식 제외)으로 다룬다.
+        condition.includeMovable ?? false,
       );
       for (const run of runs) {
         hits.push({
@@ -351,7 +374,7 @@ export function start(): void {
 
     if (raised.length > 0) {
       alarms = [...raised, ...alarms].slice(0, MAX_ALARMS);
-      for (const alarm of raised) sendOsNotification(alarm);
+      if (osNotifyEnabled) for (const alarm of raised) sendOsNotification(alarm);
     }
 
     draw();
@@ -369,7 +392,12 @@ export function start(): void {
     }
   }
 
-  const timer = window.setInterval(() => void checkOnce(), INTERVAL_MS);
+  function restartTimer() {
+    window.clearInterval(timer);
+    timer = window.setInterval(() => void checkOnce(), intervalSeconds * 1000);
+  }
+
+  restartTimer();
 
   draw();
   void loadMovies();

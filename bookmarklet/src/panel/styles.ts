@@ -51,6 +51,12 @@ select:disabled, input:disabled { background: #f4f4f5; color: #a1a1aa; }
 .regions label:has(input:checked) { background: #18181b; color: #fff; border-color: #18181b; }
 .regions input { width: auto; margin: 0; }
 
+.checkrow {
+  display: flex; align-items: center; gap: 6px; margin: 8px 0 0;
+  font-size: 11px; color: #3f3f46; cursor: pointer;
+}
+.checkrow input { width: auto; margin: 0; }
+
 button.action {
   width: 100%; margin-top: 10px; padding: 7px; font-size: 12px; font-weight: 600;
   color: #fff; background: #18181b; border: 0; border-radius: 6px; cursor: pointer;
@@ -76,6 +82,19 @@ li.card .row .grow { flex: 1; }
 
 .badge { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: #e4e4e7; color: #52525b; }
 .badge.on { background: #dcfce7; color: #166534; }
+
+button.notifybtn {
+  padding: 3px 8px; font-size: 11px; font-weight: 600; border: 0; border-radius: 5px; cursor: pointer;
+  background: #e4e4e7; color: #52525b;
+}
+button.notifybtn.on { background: #22c55e; color: #fff; }
+button.notifybtn:disabled { cursor: not-allowed; opacity: .6; }
+
+.intervalbox { display: flex; align-items: center; gap: 3px; font-size: 11px; color: #52525b; }
+.intervalbox input {
+  width: 42px; padding: 2px 4px; font-size: 11px; text-align: right;
+  border: 1px solid #d4d4d8; border-radius: 5px; background: #fff; color: #18181b;
+}
 
 li.alarm { border: 2px solid #f59e0b; background: #fffbeb; }
 li.alarm .title { color: #92400e; }

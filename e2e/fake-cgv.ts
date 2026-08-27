@@ -13,7 +13,15 @@ export const MOV_NO = "30001323";
 /** 상영관 좌표. 3등분 경계는 x가 10과 20, y가 10과 20이다. */
 const HALL = { xStart: 0, xEnd: 30, yStart: 0, yEnd: 30 };
 
-export type FakeSeat = { row: string; number: number; free: boolean; x: number; y: number };
+export type FakeSeat = {
+  row: string;
+  number: number;
+  free: boolean;
+  x: number;
+  y: number;
+  /** 이동식(장애인·동반석) 좌석인지. */
+  movable?: boolean;
+};
 
 /** 중간 중앙 칸에 놓이는 좌석. */
 export function centerSeat(row: string, number: number, free: boolean): FakeSeat {
@@ -25,12 +33,19 @@ export function frontLeftSeat(row: string, number: number, free: boolean): FakeS
   return { row, number, free, x: 5, y: 5 };
 }
 
+/** 중간 중앙 칸의 이동식(장애인·동반석) 좌석. */
+export function movableCenterSeat(row: string, number: number, free: boolean): FakeSeat {
+  return { row, number, free, x: 15, y: 15, movable: true };
+}
+
 export type FakeSchedule = {
   scnsNo: string;
   scnSseq: string;
   /** HHMM */
   startTime: string;
   seats: FakeSeat[];
+  /** 상영관 등급 코드. 비우면 아이맥스("03")다. CGV는 한 지점의 모든 상영관을 함께 돌려준다. */
+  screenGrade?: string;
 };
 
 export type FakeState = {
@@ -50,6 +65,7 @@ function seatRow(seat: FakeSeat) {
     seatSaleYn: seat.free ? "Y" : "N",
     xcoordStartVal: String(seat.x).padStart(4, "0"),
     ycoordStartVal: String(seat.y).padStart(4, "0"),
+    seatSalfrmCd: seat.movable ? "04" : "01",
   };
 }
 
@@ -103,11 +119,12 @@ export async function serveFakeCgv(page: Page, initial: FakeState): Promise<Fake
       const rows = state.schedules.map((schedule) => ({
         scnsNo: schedule.scnsNo,
         scnSseq: schedule.scnSseq,
-        scnsNm: "IMAX관",
+        scnsNm: schedule.screenGrade && schedule.screenGrade !== "03" ? "1관 (Laser)" : "IMAX관",
         scnsrtTm: schedule.startTime,
         scnendTm: "2359",
         frSeatCnt: String(schedule.seats.filter((seat) => seat.free).length),
         cpSeatCnt: String(schedule.seats.length),
+        tcscnsGradCd: schedule.screenGrade ?? "03",
       }));
       return route.fulfill({
         json: envelope(

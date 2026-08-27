@@ -33,6 +33,7 @@ export function findRuns(
   hall: Hall,
   regions: Region[],
   minimum: number,
+  includeMovable: boolean,
 ): SeatRun[] {
   if (minimum < 1) return [];
 
@@ -41,6 +42,7 @@ export function findRuns(
 
   for (const seat of seats) {
     if (!seat.free) continue;
+    if (seat.movable && !includeMovable) continue;
     if (!wanted.has(regionOf(seat, hall))) continue;
     const bucket = byRow.get(seat.row);
     if (bucket) bucket.push(seat);
