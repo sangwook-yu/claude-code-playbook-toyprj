@@ -1,10 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  BOOKABLE_DATE_LABEL,
   bookmarkletCode,
   centerSeat,
   frontLeftSeat,
   movableCenterSeat,
+  SCREEN_KIND_LABEL,
   serveFakeCgv,
   type FakeState,
 } from "./fake-cgv";
@@ -48,7 +50,7 @@ async function openPanel(page: Page) {
   await page.goto("https://cgv.co.kr/");
   await page.evaluate(() => window.localStorage.clear());
   await page.addScriptTag({ content: await bookmarkletCode() });
-  await expect(page.getByRole("heading", { name: "아이맥스 좌석 감시" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "CGV 좌석 감시" })).toBeVisible();
 }
 
 /** 조건 하나를 등록한다. 기본은 중간 중앙 2연석, 하루 전체 시간대. */
@@ -60,10 +62,13 @@ async function addCondition(
     seats?: string;
     region?: string;
     includeMovable?: boolean;
+    screen?: string;
   } = {},
 ) {
   await page.getByLabel("영화").selectOption({ label: "오디세이" });
   await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
+  await page.getByLabel("날짜").selectOption({ label: BOOKABLE_DATE_LABEL });
+  await page.getByLabel("상영관").selectOption({ label: options.screen ?? SCREEN_KIND_LABEL });
   await page.getByLabel("시작").fill(options.from ?? "00:00");
   await page.getByLabel("끝").fill(options.to ?? "23:59");
   if (options.seats) await page.getByLabel("최소 연석 수").fill(options.seats);
@@ -99,7 +104,7 @@ test("CGV가 아닌 곳에서 실행하면 패널 대신 안내가 나온다", a
   await page.addScriptTag({ content: await bookmarkletCode() });
 
   expect(messages.join(" ")).toContain("CGV 페이지");
-  await expect(page.getByRole("heading", { name: "아이맥스 좌석 감시" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "CGV 좌석 감시" })).toHaveCount(1);
 });
 
 test("두 번 실행해도 패널은 하나만 있다", async ({ page }) => {
@@ -109,7 +114,7 @@ test("두 번 실행해도 패널은 하나만 있다", async ({ page }) => {
   page.on("dialog", (dialog) => void dialog.dismiss());
   await page.addScriptTag({ content: await bookmarkletCode() });
 
-  await expect(page.getByRole("heading", { name: "아이맥스 좌석 감시" })).toHaveCount(1);
+  await expect(page.getByRole("heading", { name: "CGV 좌석 감시" })).toHaveCount(1);
 });
 
 test("조건을 등록하면 목록에 남고 새로고침 뒤에도 이어진다", async ({ page }) => {
@@ -211,7 +216,11 @@ test("시간 범위 밖 회차는 자리가 나도 알람을 내지 않는다", 
   await expect(page.getByTestId("alarm")).toHaveCount(0);
 });
 
-test("알람을 누르면 CGV 예매 화면이 새 탭으로 열린다", async ({ page, context }) => {
+test("알람을 누르면 CGV 예매 화면이 새 탭으로 열리고, 지점 이름이 클립보드에 복사된다", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const state = await serveFakeCgv(page, soldOut());
   await openPanel(page);
   await addCondition(page);
@@ -222,11 +231,14 @@ test("알람을 누르면 CGV 예매 화면이 새 탭으로 열린다", async (
   await expect(page.getByTestId("alarm")).toHaveCount(1);
 
   const opened = context.waitForEvent("page");
-  await page.getByRole("button", { name: "CGV 예매 화면 열기" }).click();
+  await page.getByRole("button", { name: "상영관 이름 복사하고 CGV 열기" }).click();
   const tab = await opened;
 
   expect(tab.url()).toContain("cgv.co.kr/cnm/movieBook/movie");
   await tab.close();
+
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toBe("천안펜타포트");
 });
 
 test("조회가 차단되면 감시가 조용히 멈추지 않고 화면에 드러난다", async ({ page }) => {
@@ -272,6 +284,53 @@ test("알림 권한을 허용하면 자리가 났을 때 OS 알림을 보낸다"
     () => (window as unknown as { __osNotifications: string[] }).__osNotifications,
   );
   expect(sent.join(" ")).toContain("자리가 났습니다");
+});
+
+test("같은 회차에 자리가 계속 나 있으면 좌석 조합이 바뀌어도 OS 알림은 한 번만 온다", async ({
+  page,
+  context,
+}) => {
+  await context.grantPermissions(["notifications"]);
+  await page.addInitScript(() => {
+    const sent: string[] = [];
+    class RecordingNotification {
+      static permission = "granted";
+      static requestPermission() {
+        return Promise.resolve("granted");
+      }
+      constructor(title: string) {
+        sent.push(title);
+      }
+    }
+    Object.defineProperty(window, "Notification", { value: RecordingNotification, writable: true });
+    Object.defineProperty(window, "__osNotifications", { value: sent, writable: true });
+  });
+
+  const state = await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+  await addCondition(page);
+  await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+
+  state.schedules = withCenterPair().schedules;
+  await page.getByRole("button", { name: "지금 확인" }).click();
+  await expect(page.getByTestId("alarm")).toHaveCount(1);
+
+  // 좌석 구성이 살짝 바뀐다(B7도 열림). 정확한 조합은 달라졌지만 같은 회차가 계속 열려 있는 상황이다.
+  state.schedules = [
+    {
+      scnsNo: "004",
+      scnSseq: "4",
+      startTime: "1930",
+      seats: [centerSeat("B", 5, true), centerSeat("B", 6, true), centerSeat("B", 7, true)],
+    },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+  await expect(page.getByTestId("alarm")).toHaveCount(2);
+
+  const sent = await page.evaluate(
+    () => (window as unknown as { __osNotifications: string[] }).__osNotifications,
+  );
+  expect(sent).toHaveLength(1);
 });
 
 test("CGV가 같은 회차를 여러 상품으로 중복해 돌려줘도 알람의 자리 목록은 한 번만 나온다", async ({
@@ -343,13 +402,84 @@ test("영화와 지점을 고르지 않고 조건 추가를 누르면 에러가 
   await expect(page.getByText("영화와 지점을 모두 골라 주세요.")).toBeVisible();
 });
 
-test("아이맥스가 아닌 상영관의 자리는 알람을 내지 않는다", async ({ page }) => {
+test("날짜는 상영이 실제로 있는 날만 고를 수 있다", async ({ page }) => {
+  await serveFakeCgv(page, { ...soldOut(), dates: ["20260829", "20260831"] });
+  await openPanel(page);
+
+  const dateSelect = page.getByLabel("날짜");
+  await expect(dateSelect).toContainText("지점을 먼저 고르세요");
+
+  await page.getByLabel("영화").selectOption({ label: "오디세이" });
+  await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
+
+  // CGV가 준 두 날짜만 있고, 그 사이의 8월 30일 같은 날은 아예 고를 수 없다.
+  await expect(dateSelect.locator("option")).toHaveText([
+    "선택하세요",
+    "2026.08.29 (토)",
+    "2026.08.31 (월)",
+  ]);
+});
+
+test("고를 수 있는 날짜가 하나뿐이면 미리 골라져 있다", async ({ page }) => {
+  await serveFakeCgv(page, soldOut());
+  await openPanel(page);
+
+  await page.getByLabel("영화").selectOption({ label: "오디세이" });
+  await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
+
+  await expect(page.getByLabel("날짜")).toHaveValue("20260829");
+});
+
+test("상영일이 없는 지점을 고르면 그 사실이 보이고 날짜를 고를 수 없다", async ({ page }) => {
+  await serveFakeCgv(page, { ...soldOut(), dates: [] });
+  await openPanel(page);
+
+  await page.getByLabel("영화").selectOption({ label: "오디세이" });
+  await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
+
+  const dateSelect = page.getByLabel("날짜");
+  await expect(dateSelect).toContainText("예매 가능한 상영일이 없습니다");
+  await expect(dateSelect).toBeDisabled();
+
+  await page.getByRole("button", { name: "조건 추가" }).click();
+  await expect(page.getByText("예매 가능한 날짜를 골라 주세요.")).toBeVisible();
+});
+
+test("상영관은 그날 실제로 상영하는 것만 고를 수 있다", async ({ page }) => {
+  // 그날 일반관·4DX·아이맥스 회차가 모두 있는 지점이다.
+  await serveFakeCgv(page, {
+    blocked: false,
+    schedules: [
+      { scnsNo: "001", scnSseq: "1", startTime: "1000", seats: [], screenGrade: "01" },
+      { scnsNo: "002", scnSseq: "1", startTime: "1300", seats: [], screenGrade: "02" },
+      { scnsNo: "004", scnSseq: "4", startTime: "1930", seats: [], screenGrade: "03" },
+    ],
+  });
+  await openPanel(page);
+
+  const screenSelect = page.getByLabel("상영관");
+  await expect(screenSelect).toContainText("날짜를 먼저 고르세요");
+
+  await page.getByLabel("영화").selectOption({ label: "오디세이" });
+  await page.getByLabel("지점").selectOption({ label: "천안펜타포트 (대전/충청)" });
+
+  // CGV가 준 이름을 그대로 쓴다. 코드를 미리 알 필요가 없다.
+  await expect(screenSelect.locator("option")).toHaveText([
+    "선택하세요",
+    "일반",
+    "4DX",
+    "아이맥스",
+  ]);
+});
+
+test("고른 상영관이 아닌 회차의 자리는 알람을 내지 않는다", async ({ page }) => {
   const state = await serveFakeCgv(page, soldOut());
   await openPanel(page);
   await addCondition(page);
   await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
+  await expect(page.getByTestId("condition")).toContainText("아이맥스");
 
-  // 같은 지점의 일반관(1관)에 자리가 났다. 조건은 아이맥스만 본다.
+  // 같은 지점의 일반관(1관)에 자리가 났다. 조건은 아이맥스를 고른 상태다.
   state.schedules = [
     {
       scnsNo: "001",
@@ -363,6 +493,37 @@ test("아이맥스가 아닌 상영관의 자리는 알람을 내지 않는다",
 
   await expect(page.getByTestId("condition")).toContainText("회차 0개 확인");
   await expect(page.getByTestId("alarm")).toHaveCount(0);
+});
+
+test("일반관을 고르면 일반관 자리로 알람이 뜬다", async ({ page }) => {
+  const state = await serveFakeCgv(page, {
+    blocked: false,
+    schedules: [
+      { scnsNo: "001", scnSseq: "1", startTime: "1730", seats: [], screenGrade: "01" },
+      { scnsNo: "004", scnSseq: "4", startTime: "1930", seats: [], screenGrade: "03" },
+    ],
+  });
+  await openPanel(page);
+  await addCondition(page, { screen: "일반" });
+  await expect(page.getByTestId("condition")).toContainText("일반");
+
+  // 일반관에만 자리가 난다. 아이맥스를 골랐다면 잡히지 않았을 상황이다.
+  state.schedules = [
+    {
+      scnsNo: "001",
+      scnSseq: "1",
+      startTime: "1730",
+      seats: [centerSeat("B", 5, true), centerSeat("B", 6, true)],
+      screenGrade: "01",
+    },
+    { scnsNo: "004", scnSseq: "4", startTime: "1930", seats: [], screenGrade: "03" },
+  ];
+  await page.getByRole("button", { name: "지금 확인" }).click();
+
+  const alarm = page.getByTestId("alarm");
+  await expect(alarm).toHaveCount(1);
+  await expect(alarm).toContainText("1관 (Laser)");
+  await expect(alarm).toContainText("B5–B6 (2석)");
 });
 
 test("OS 알람 버튼은 켜짐/꺼짐을 토글하고, 꺼져 있으면 알림을 보내지 않는다", async ({

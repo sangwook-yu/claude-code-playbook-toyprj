@@ -48,8 +48,25 @@ export type FakeSchedule = {
   screenGrade?: string;
 };
 
+/** 상영관 등급 코드별 이름. 실제 CGV 응답에서 확인한 값이다. */
+const SCREEN_KIND_NAMES: Record<string, string> = {
+  "01": "일반",
+  "02": "4DX",
+  "03": "아이맥스",
+  "04": "SCREENX",
+};
+
+/** 조건을 등록할 때 고를 상영관. 기본은 아이맥스다. */
+export const SCREEN_KIND_LABEL = "아이맥스";
+
+/** 조건을 등록할 때 고를 수 있는 날짜. 실제 CGV도 IMAX 상영이 있는 날만 돌려준다. */
+export const BOOKABLE_DATE = "20260829";
+export const BOOKABLE_DATE_LABEL = "2026.08.29 (토)";
+
 export type FakeState = {
   schedules: FakeSchedule[];
+  /** 고를 수 있는 날짜(YYYYMMDD). 비우면 BOOKABLE_DATE 하나만 돌려준다. */
+  dates?: string[];
   /** 회차·좌석 조회를 차단된 것처럼 돌려준다. */
   blocked: boolean;
   /** CGV가 실제로 그러듯, 같은 회차를 가격 상품별로 두 번 돌려준다. */
@@ -107,6 +124,13 @@ export async function serveFakeCgv(page: Page, initial: FakeState): Promise<Fake
       });
     }
 
+    if (path.startsWith("/api/v1/booking/searchSiteScnscYmdListByMov")) {
+      const dates = state.dates ?? [BOOKABLE_DATE];
+      return route.fulfill({
+        json: envelope(dates.map((scnYmd) => ({ scnYmd, hldyYn: null }))),
+      });
+    }
+
     if (state.blocked) {
       return route.fulfill({
         status: 403,
@@ -116,16 +140,20 @@ export async function serveFakeCgv(page: Page, initial: FakeState): Promise<Fake
     }
 
     if (path.startsWith("/api/v1/booking/searchSchByMov")) {
-      const rows = state.schedules.map((schedule) => ({
-        scnsNo: schedule.scnsNo,
-        scnSseq: schedule.scnSseq,
-        scnsNm: schedule.screenGrade && schedule.screenGrade !== "03" ? "1관 (Laser)" : "IMAX관",
-        scnsrtTm: schedule.startTime,
-        scnendTm: "2359",
-        frSeatCnt: String(schedule.seats.filter((seat) => seat.free).length),
-        cpSeatCnt: String(schedule.seats.length),
-        tcscnsGradCd: schedule.screenGrade ?? "03",
-      }));
+      const rows = state.schedules.map((schedule) => {
+        const grade = schedule.screenGrade ?? "03";
+        return {
+          scnsNo: schedule.scnsNo,
+          scnSseq: schedule.scnSseq,
+          scnsNm: grade === "03" ? "IMAX관" : "1관 (Laser)",
+          scnsrtTm: schedule.startTime,
+          scnendTm: "2359",
+          frSeatCnt: String(schedule.seats.filter((seat) => seat.free).length),
+          cpSeatCnt: String(schedule.seats.length),
+          tcscnsGradCd: grade,
+          tcscnsGradNm: SCREEN_KIND_NAMES[grade] ?? grade,
+        };
+      });
       return route.fulfill({
         json: envelope(
           state.duplicateRows ? rows.flatMap((row) => [row, row]) : rows,

@@ -7,6 +7,13 @@ export type WatchCondition = {
   siteNm: string;
   movNo: string;
   movNm: string;
+  /**
+   * 감시할 상영관 종류 코드(`tcscnsGradCd`).
+   * 이 필드가 생기기 전에 저장된 조건에는 없다. 그때는 아이맥스만 감시했으므로 "03"으로 본다.
+   */
+  screenKindCode: string;
+  /** 상영관 종류 이름. 화면에 그대로 보여준다. */
+  screenKindName: string;
   /** YYYYMMDD */
   date: string;
   /** HHMM */

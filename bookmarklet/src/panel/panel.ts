@@ -1,6 +1,6 @@
 /** CGV 화면 위에 얹히는 감시 패널. 상태를 받아 그리고, 사용자의 조작을 콜백으로 올린다. */
 import { PANEL_CSS } from "./styles";
-import type { ConditionDraft, PanelCallbacks, PanelState } from "./view";
+import type { ConditionDraft, Option, PanelCallbacks, PanelState } from "./view";
 
 export const PANEL_ID = "imax-seat-watch-panel";
 /** 최소 주기이자 클릭 한 번의 증감 단위. 내부 계산은 초 단위로 하고, 입력칸에는 분으로 보여준다. */
@@ -16,11 +16,15 @@ function minutesToSeconds(minutes: number): number {
   return Math.max(MIN_INTERVAL_SECONDS, Math.round(rounded * 60));
 }
 
-function today(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
+const WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
+
+/** "20260829"를 "2026.08.29 (토)"로. 고를 때 요일이 보여야 알아보기 쉽다. */
+export function describeDate(ymd: string): string {
+  const year = ymd.slice(0, 4);
+  const month = ymd.slice(4, 6);
+  const day = ymd.slice(6, 8);
+  const weekday = WEEKDAYS[new Date(`${year}-${month}-${day}T00:00:00`).getDay()] ?? "";
+  return `${year}.${month}.${day} (${weekday})`;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(
@@ -52,7 +56,7 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
   const dot = el("span", { class: "dot" });
   const head = el("div", { class: "head" }, [
     dot,
-    el("h1", {}, ["아이맥스 좌석 감시"]),
+    el("h1", {}, ["CGV 좌석 감시"]),
     (() => {
       const button = el("button", { class: "iconbtn", title: "접기" }, ["–"]);
       button.addEventListener("click", (event) => {
@@ -113,8 +117,11 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
   const movieSelect = el("select", { id: "movie" });
   movieSelect.addEventListener("change", () => callbacks.onSelectMovie(movieSelect.value));
   const siteSelect = el("select", { id: "site" });
-  const dateInput = el("input", { id: "date", type: "date" });
-  dateInput.value = today();
+  siteSelect.addEventListener("change", () => callbacks.onSelectSite(siteSelect.value));
+  // 예매할 수 없는 날짜를 감시해 봐야 소용없으므로, 직접 입력이 아니라 목록에서 고른다.
+  const dateSelect = el("select", { id: "date" });
+  dateSelect.addEventListener("change", () => callbacks.onSelectDate(dateSelect.value));
+  const screenSelect = el("select", { id: "screen" });
   const fromInput = el("input", { id: "from", type: "time" });
   fromInput.value = "00:00";
   const toInput = el("input", { id: "to", type: "time" });
@@ -132,7 +139,8 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
     const draft: ConditionDraft = {
       movieId: movieSelect.value,
       siteId: siteSelect.value,
-      date: dateInput.value,
+      date: dateSelect.value,
+      screenKindCode: screenSelect.value,
       fromTime: fromInput.value,
       toTime: toInput.value,
       regionIds,
@@ -150,7 +158,9 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
       el("label", { for: "site" }, ["지점"]),
       siteSelect,
       el("label", { for: "date" }, ["날짜"]),
-      dateInput,
+      dateSelect,
+      el("label", { for: "screen" }, ["상영관"]),
+      screenSelect,
       el("div", { class: "two" }, [
         el("div", {}, [el("label", { for: "from" }, ["시작"]), fromInput]),
         el("div", {}, [el("label", { for: "to" }, ["끝"]), toInput]),
@@ -250,7 +260,11 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
 
     const list = el("ul");
     for (const alarm of state.alarms) {
-      const open = el("button", { class: "small" }, ["CGV 예매 화면 열기"]);
+      const open = el(
+        "button",
+        { class: "small", title: "지점 이름을 클립보드에 복사하고 CGV 예매 화면을 엽니다." },
+        ["상영관 이름 복사하고 CGV 열기"],
+      );
       open.addEventListener("click", () => callbacks.onOpenAlarm(alarm.id));
 
       list.append(
@@ -265,32 +279,89 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
     alarmSection.append(list);
   }
 
-  function fillOptions(select: HTMLSelectElement, state: PanelState, which: "movies" | "sites") {
-    const options = which === "movies" ? state.movies : state.sites;
+  /**
+   * 영화·지점·날짜·상영관은 모두 같은 모양의 단계다. 앞 단계가 정해져야 목록이 채워지고,
+   * 불러오는 동안과 결과가 없을 때 할 말이 있다. 그 차이만 여기에 적는다.
+   *
+   * `selected`가 있으면 그 값이 곧 화면의 값이다(조합 계층이 들고 있는 단계).
+   * 없으면 사용자가 고른 값을 그대로 둔다(상영관처럼 다음 단계를 부르지 않는 마지막 단계).
+   */
+  type Step = {
+    options: Option[];
+    /** 앞 단계를 아직 안 골랐다면 그 안내. 골랐으면 빈 문자열. */
+    waiting: string;
+    loading: boolean;
+    empty: string;
+    selected: string | null;
+  };
+
+  function stepOf(state: PanelState, which: "movies" | "sites" | "dates" | "screens"): Step {
+    if (which === "movies") {
+      return {
+        options: state.movies,
+        waiting: "",
+        loading: false,
+        empty: "상영 중인 영화가 없습니다",
+        selected: state.selectedMovieId,
+      };
+    }
+    if (which === "sites") {
+      return {
+        options: state.sites,
+        waiting: state.selectedMovieId ? "" : "영화를 먼저 고르세요",
+        loading: state.sitesLoading,
+        empty: "상영 지점이 없습니다",
+        selected: state.selectedSiteId,
+      };
+    }
+    if (which === "dates") {
+      return {
+        options: state.dates,
+        waiting: state.selectedSiteId ? "" : "지점을 먼저 고르세요",
+        loading: state.datesLoading,
+        empty: "예매 가능한 상영일이 없습니다",
+        selected: state.selectedDate,
+      };
+    }
+    return {
+      options: state.screenKinds,
+      waiting: state.selectedDate ? "" : "날짜를 먼저 고르세요",
+      loading: state.screenKindsLoading,
+      empty: "그날 상영하는 상영관이 없습니다",
+      selected: null,
+    };
+  }
+
+  function fillOptions(
+    select: HTMLSelectElement,
+    state: PanelState,
+    which: "movies" | "sites" | "dates" | "screens",
+  ) {
+    const step = stepOf(state, which);
     const keep = select.value;
 
-    const placeholder =
-      which === "movies"
-        ? options.length === 0
-          ? "상영 중인 IMAX 영화가 없습니다"
-          : "선택하세요"
-        : !state.selectedMovieId
-          ? "영화를 먼저 고르세요"
-          : state.sitesLoading
-            ? "불러오는 중"
-            : options.length === 0
-              ? "IMAX 상영 지점이 없습니다"
-              : "선택하세요";
+    const placeholder = step.waiting
+      ? step.waiting
+      : step.loading
+        ? "불러오는 중"
+        : step.options.length === 0
+          ? step.empty
+          : "선택하세요";
 
     select.replaceChildren(el("option", { value: "" }, [placeholder]));
-    for (const option of options) {
+    for (const option of step.options) {
       select.append(el("option", { value: option.id }, [option.label]));
     }
 
-    if (which === "movies") select.value = state.selectedMovieId;
-    else if (options.some((option) => option.id === keep)) select.value = keep;
+    if (step.selected !== null) {
+      select.value = step.selected;
+    } else {
+      if (step.options.some((option) => option.id === keep)) select.value = keep;
+      // 고를 것이 하나뿐이면 고민할 것도 없으니 미리 골라 둔다.
+      if (!select.value && step.options.length === 1) select.value = step.options[0].id;
+    }
 
-    select.disabled = options.length === 0;
+    select.disabled = step.options.length === 0;
   }
 
   function render(state: PanelState) {
@@ -322,6 +393,8 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
 
     fillOptions(movieSelect, state, "movies");
     fillOptions(siteSelect, state, "sites");
+    fillOptions(dateSelect, state, "dates");
+    fillOptions(screenSelect, state, "screens");
 
     drawConditions(state);
     drawAlarms(state);

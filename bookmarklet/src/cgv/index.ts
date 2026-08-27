@@ -1,3 +1,10 @@
-export { fetchImaxMovies, fetchImaxSites, fetchSchedules, fetchSeatMap } from "./api";
+export {
+  fetchDates,
+  fetchMovies,
+  fetchSchedules,
+  fetchScreenKinds,
+  fetchSeatMap,
+  fetchSites,
+} from "./api";
 export { dedupeById } from "./dedupe";
-export type { Site, Movie, Schedule, SeatMap, Fetched, Failure } from "./types";
+export type { Site, Movie, Schedule, ScreenKind, SeatMap, Fetched, Failure } from "./types";

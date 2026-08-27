@@ -4,12 +4,9 @@
  */
 import type { Hall, Seat } from "../seat";
 import { dedupeById } from "./dedupe";
-import type { Fetched, Movie, SeatMap, Schedule, Site } from "./types";
+import type { Fetched, Movie, SeatMap, Schedule, ScreenKind, Site } from "./types";
 
 const COMPANY = "A420";
-/** 특별관 구분값. 04가 IMAX다. */
-const IMAX_ATTR = "04";
-const ATTR_DIV = "CUST_EXPO_MOVTYP_CD";
 /** 응답이 오지도 실패하지도 않고 멎으면, 이 시간 뒤에 실패로 끊는다. */
 const TIMEOUT_MS = 10_000;
 
@@ -50,9 +47,9 @@ async function call<T>(path: string): Promise<Fetched<Envelope<T>>> {
   }
 }
 
-export async function fetchImaxMovies(): Promise<Fetched<Movie[]>> {
+export async function fetchMovies(): Promise<Fetched<Movie[]>> {
   const result = await call<{ movNo: string; movNm: string }[]>(
-    `/api/v1/booking/searchAtktTopPostrList?coCd=${COMPANY}&movNm=&div=${ATTR_DIV}&attrCd=${IMAX_ATTR}`,
+    `/api/v1/booking/searchAtktTopPostrList?coCd=${COMPANY}&movNm=&div=&attrCd=`,
   );
   if (!result.ok) return result;
 
@@ -62,9 +59,9 @@ export async function fetchImaxMovies(): Promise<Fetched<Movie[]>> {
 
 type RegionRow = { regnGrpNm: string; siteList: { siteNo: string; siteNm: string }[] | null };
 
-export async function fetchImaxSites(movNo: string): Promise<Fetched<Site[]>> {
+export async function fetchSites(movNo: string): Promise<Fetched<Site[]>> {
   const result = await call<RegionRow[]>(
-    `/api/v1/booking/searchRegnList?movNo=${encodeURIComponent(movNo)}&coCd=${COMPANY}&div=${ATTR_DIV}&attrCd=${IMAX_ATTR}`,
+    `/api/v1/booking/searchRegnList?movNo=${encodeURIComponent(movNo)}&coCd=${COMPANY}`,
   );
   if (!result.ok) return result;
 
@@ -78,6 +75,17 @@ export async function fetchImaxSites(movNo: string): Promise<Fetched<Site[]>> {
   return { ok: true, data: sites };
 }
 
+/** 그 지점에서 그 영화의 상영이 실제로 있는 날짜만 돌려준다. */
+export async function fetchDates(siteNo: string, movNo: string): Promise<Fetched<string[]>> {
+  const result = await call<{ scnYmd: string }[]>(
+    `/api/v1/booking/searchSiteScnscYmdListByMov?coCd=${COMPANY}&siteNo=${encodeURIComponent(siteNo)}&movNo=${encodeURIComponent(movNo)}`,
+  );
+  if (!result.ok) return result;
+
+  const dates = (result.data.data ?? []).map((row) => row.scnYmd).filter(Boolean);
+  return { ok: true, data: dates };
+}
+
 type ScheduleRow = {
   scnsNo: string;
   scnSseq: string;
@@ -86,13 +94,16 @@ type ScheduleRow = {
   scnendTm: string;
   frSeatCnt: string;
   cpSeatCnt: string;
-  /** 상영관 등급 코드. "03"이 아이맥스다. 실측으로 확인했다(docs/decisions/cgv-data-source.md). */
+  /** 상영관 등급 코드. 01=일반, 02=4DX, 03=아이맥스, 04=SCREENX (실측). */
   tcscnsGradCd: string;
+  /** 상영관 등급 이름. 코드와 함께 오므로 종류 목록을 여기서 그대로 만든다. */
+  tcscnsGradNm: string;
 };
 
-/** 회차 조회는 한 지점의 모든 상영관(2D·4DX·IMAX 등)을 함께 돌려준다. 이 코드만 아이맥스다. */
-const IMAX_SCREEN_GRADE = "03";
-
+/**
+ * 한 지점의 그날 회차를 상영관 종류 구분 없이 모두 돌려준다.
+ * 어느 상영관을 볼지는 조건이 정하므로 여기서 거르지 않는다.
+ */
 export async function fetchSchedules(
   siteNo: string,
   movNo: string,
@@ -103,10 +114,11 @@ export async function fetchSchedules(
   );
   if (!result.ok) return result;
 
-  const rows = (result.data.data ?? []).filter((row) => row.tcscnsGradCd === IMAX_SCREEN_GRADE);
-  const schedules = rows.map((row) => ({
+  const schedules = (result.data.data ?? []).map((row) => ({
     id: `${siteNo}-${date}-${row.scnsNo}-${row.scnSseq}`,
     screenNm: row.scnsNm,
+    screenKindCode: row.tcscnsGradCd,
+    screenKindName: row.tcscnsGradNm,
     startTime: row.scnsrtTm,
     endTime: row.scnendTm,
     freeSeats: Number(row.frSeatCnt),
@@ -117,6 +129,30 @@ export async function fetchSchedules(
 
   // 같은 회차가 가격 상품별로 여러 행 돌아올 때가 있다. 회차당 하나만 남긴다.
   return { ok: true, data: dedupeById(schedules) };
+}
+
+/**
+ * 그 지점·영화·날짜에 실제로 있는 상영관 종류만 돌려준다.
+ * 코드 체계를 미리 알 필요가 없도록, CGV가 준 이름을 그대로 쓴다.
+ */
+export async function fetchScreenKinds(
+  siteNo: string,
+  movNo: string,
+  date: string,
+): Promise<Fetched<ScreenKind[]>> {
+  const result = await fetchSchedules(siteNo, movNo, date);
+  if (!result.ok) return result;
+
+  const byCode = new Map<string, ScreenKind>();
+  for (const schedule of result.data) {
+    if (!schedule.screenKindCode || byCode.has(schedule.screenKindCode)) continue;
+    byCode.set(schedule.screenKindCode, {
+      code: schedule.screenKindCode,
+      name: schedule.screenKindName || schedule.screenKindCode,
+    });
+  }
+
+  return { ok: true, data: [...byCode.values()] };
 }
 
 type SeatRow = {
