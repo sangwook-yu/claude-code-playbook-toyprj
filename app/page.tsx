@@ -27,11 +27,11 @@ export default async function Home() {
   return (
     <main className="mx-auto w-full max-w-2xl px-6 py-16">
       <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        아이맥스 좌석 감시
+        CGV 좌석 감시
       </h1>
       <p className="mt-2 text-zinc-600 dark:text-zinc-400">
-        매진된 CGV 아이맥스 회차에 원하는 자리가 풀리면 알려드립니다. 설치할 것은 없고 북마크 하나만
-        등록하면 됩니다.
+        매진된 CGV 회차에 원하는 자리가 풀리면 알려드립니다. 아이맥스 같은 특별관은 물론 일반관도
+        감시할 수 있습니다. 설치할 것은 없고 북마크 하나만 등록하면 됩니다.
       </p>
 
       <section className="mt-10">
@@ -41,7 +41,7 @@ export default async function Home() {
             <p
               className="[&_a]:inline-block [&_a]:rounded-lg [&_a]:bg-zinc-900 [&_a]:px-5 [&_a]:py-2.5 [&_a]:text-sm [&_a]:font-semibold [&_a]:text-white [&_a]:no-underline dark:[&_a]:bg-zinc-100 dark:[&_a]:text-zinc-900"
               dangerouslySetInnerHTML={{
-                __html: `<a href="${bookmarklet}" draggable="true">아이맥스 좌석 감시</a>`,
+                __html: `<a href="${bookmarklet}" draggable="true">CGV 좌석 감시</a>`,
               }}
             />
             <p className="mt-2 text-xs text-zinc-500">
@@ -91,7 +91,7 @@ export default async function Home() {
                   창 오른쪽 위의 점 세 개(⋮)를 누르고 <strong>새 북마크 추가</strong>를 고릅니다.
                 </li>
                 <li>
-                  <strong>이름</strong>에는 아무거나(예: &ldquo;아이맥스 좌석 감시&rdquo;) 적고,{" "}
+                  <strong>이름</strong>에는 아무거나(예: &ldquo;CGV 좌석 감시&rdquo;) 적고,{" "}
                   <strong>URL</strong> 칸에 방금 복사한 코드를 붙여넣은 뒤 저장합니다.
                 </li>
                 <li>
@@ -134,9 +134,12 @@ export default async function Home() {
             </a>
             를 새 탭으로 엽니다. 어느 페이지든 괜찮습니다.
           </li>
-          <li>북마크바에 등록해 둔 &ldquo;아이맥스 좌석 감시&rdquo;를 클릭합니다.</li>
+          <li>북마크바에 등록해 둔 &ldquo;CGV 좌석 감시&rdquo;를 클릭합니다.</li>
           <li>화면 오른쪽 아래에 감시 패널이 뜹니다.</li>
-          <li>노리는 영화·지점·날짜·시간대와 좌석 구역, 최소 연석 수를 정해 조건을 추가합니다.</li>
+          <li>
+            노리는 영화·지점·날짜·상영관과 시간대, 좌석 구역, 최소 연석 수를 정해 조건을 추가합니다.
+            상영관은 아이맥스 같은 특별관과 일반관 중에서 그날 실제로 상영하는 것만 나옵니다.
+          </li>
           <li>그 탭을 열어둔 채로 다른 일을 하시면 됩니다. 조건에 맞는 자리가 나면 알람이 뜹니다.</li>
         </ol>
       </section>

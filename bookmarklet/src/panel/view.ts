@@ -29,8 +29,16 @@ export type AlarmView = {
 export type PanelState = {
   movies: Option[];
   sites: Option[];
+  /** 그 지점에서 그 영화의 상영이 실제로 있는 날짜만. id는 YYYYMMDD다. */
+  dates: Option[];
+  /** 그 날짜에 실제로 있는 상영관 종류만. id는 tcscnsGradCd다. */
+  screenKinds: Option[];
   selectedMovieId: string;
+  selectedSiteId: string;
+  selectedDate: string;
   sitesLoading: boolean;
+  datesLoading: boolean;
+  screenKindsLoading: boolean;
   regions: RegionChoice[];
   error: string | null;
   conditions: ConditionView[];
@@ -50,8 +58,10 @@ export type PanelState = {
 export type ConditionDraft = {
   movieId: string;
   siteId: string;
-  /** YYYY-MM-DD */
+  /** YYYYMMDD. 고를 수 있는 날짜 목록에서 온 값이다. */
   date: string;
+  /** 상영관 종류 코드. 고를 수 있는 상영관 목록에서 온 값이다. */
+  screenKindCode: string;
   /** HH:MM */
   fromTime: string;
   /** HH:MM */
@@ -63,6 +73,10 @@ export type ConditionDraft = {
 
 export type PanelCallbacks = {
   onSelectMovie: (movieId: string) => void;
+  /** 지점이 정해져야 그 지점의 상영 날짜를 가져올 수 있다. */
+  onSelectSite: (siteId: string) => void;
+  /** 날짜가 정해져야 그날 어떤 상영관이 있는지 알 수 있다. */
+  onSelectDate: (date: string) => void;
   onAdd: (draft: ConditionDraft) => void;
   onToggle: (id: string) => void;
   onRemove: (id: string) => void;

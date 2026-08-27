@@ -16,8 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "아이맥스 좌석 감시",
-  description: "매진된 CGV 아이맥스 회차에 원하는 자리가 풀리면 알려주는 북마클릿.",
+  title: "CGV 좌석 감시",
+  description: "매진된 CGV 회차에 원하는 자리가 풀리면 알려주는 북마클릿.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
