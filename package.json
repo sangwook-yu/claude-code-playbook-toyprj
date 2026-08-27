@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
+    "dev": "bun run build:bookmarklet && next dev",
+    "build:bookmarklet": "bun bookmarklet/build.ts",
+    "build": "bun run build:bookmarklet && next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "bun run build:bookmarklet && playwright test"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -30,6 +31,7 @@
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
+    "@types/bun": "^1.4.0",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
