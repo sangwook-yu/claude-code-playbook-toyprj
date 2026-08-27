@@ -3,8 +3,18 @@ import { PANEL_CSS } from "./styles";
 import type { ConditionDraft, PanelCallbacks, PanelState } from "./view";
 
 export const PANEL_ID = "imax-seat-watch-panel";
-/** 최소 주기이자 클릭 한 번의 증감 단위(0.5분)다. */
+/** 최소 주기이자 클릭 한 번의 증감 단위. 내부 계산은 초 단위로 하고, 입력칸에는 분으로 보여준다. */
 const MIN_INTERVAL_SECONDS = 30;
+const MIN_INTERVAL_MINUTES = MIN_INTERVAL_SECONDS / 60;
+
+function secondsToMinutes(seconds: number): string {
+  return String(seconds / 60);
+}
+
+function minutesToSeconds(minutes: number): number {
+  const rounded = Math.round(minutes / MIN_INTERVAL_MINUTES) * MIN_INTERVAL_MINUTES;
+  return Math.max(MIN_INTERVAL_SECONDS, Math.round(rounded * 60));
+}
 
 function today(): string {
   const now = new Date();
@@ -78,22 +88,19 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
 
   const intervalInput = el("input", {
     type: "number",
-    min: String(MIN_INTERVAL_SECONDS),
-    step: String(MIN_INTERVAL_SECONDS),
+    min: String(MIN_INTERVAL_MINUTES),
+    step: String(MIN_INTERVAL_MINUTES),
   });
   const intervalBox = el(
     "span",
     { class: "intervalbox", title: "짧을수록 CGV가 자동 접근으로 판단해 막을 위험이 커집니다." },
-    [intervalInput, "초마다"],
+    [intervalInput, "분마다"],
   );
   intervalInput.addEventListener("change", () => {
-    const raw = Number(intervalInput.value) || MIN_INTERVAL_SECONDS;
-    const rounded = Math.max(
-      MIN_INTERVAL_SECONDS,
-      Math.round(raw / MIN_INTERVAL_SECONDS) * MIN_INTERVAL_SECONDS,
-    );
-    intervalInput.value = String(rounded);
-    callbacks.onSetInterval(rounded);
+    const rawMinutes = Number(intervalInput.value) || MIN_INTERVAL_MINUTES;
+    const seconds = minutesToSeconds(rawMinutes);
+    intervalInput.value = secondsToMinutes(seconds);
+    callbacks.onSetInterval(seconds);
   });
 
   const checkButton = el("button", { class: "small" }, ["지금 확인"]);
@@ -307,7 +314,7 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
     // 입력 중에 값을 되돌려 타이핑을 끊지 않는다.
     // shadow DOM 안의 포커스는 document.activeElement가 아니라 root.activeElement로 봐야 한다.
     if (root.activeElement !== intervalInput) {
-      intervalInput.value = String(state.intervalSeconds);
+      intervalInput.value = secondsToMinutes(state.intervalSeconds);
     }
 
     errorBox.style.display = state.error ? "" : "none";
