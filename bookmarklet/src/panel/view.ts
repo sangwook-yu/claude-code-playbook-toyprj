@@ -39,7 +39,12 @@ export type PanelState = {
   watching: string;
   /** 활성 조건이 하나 이상 있어 실제로 감시가 도는지. 상태 점 색을 여기서 정한다. */
   watchingActive: boolean;
+  /** 브라우저 알림 권한. 한 번 허용되면 코드로는 다시 거부 상태로 되돌릴 수 없다. */
   permission: "unsupported" | "default" | "granted" | "denied";
+  /** 권한이 허용된 상태에서, 지금 실제로 OS 알림을 보낼지. 앱이 자체적으로 켜고 끈다. */
+  osNotifyOn: boolean;
+  /** 확인 주기(초). 최소이자 증감 단위가 30초(0.5분)다. */
+  intervalSeconds: number;
 };
 
 export type ConditionDraft = {
@@ -53,6 +58,7 @@ export type ConditionDraft = {
   toTime: string;
   regionIds: string[];
   minimumSeats: number;
+  includeMovable: boolean;
 };
 
 export type PanelCallbacks = {
@@ -62,7 +68,9 @@ export type PanelCallbacks = {
   onRemove: (id: string) => void;
   onOpenAlarm: (id: string) => void;
   onClearAlarms: () => void;
-  onAskPermission: () => void;
+  /** 권한이 default면 요청하고, granted면 osNotifyOn을 뒤집는다. */
+  onToggleNotify: () => void;
+  onSetInterval: (seconds: number) => void;
   onCheckNow: () => void;
   onClose: () => void;
 };

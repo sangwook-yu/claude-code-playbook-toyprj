@@ -15,6 +15,8 @@ export type WatchCondition = {
   toTime: string;
   regions: Region[];
   minimumSeats: number;
+  /** 이동식(장애인·동반석) 좌석도 감시 대상에 넣을지. */
+  includeMovable: boolean;
   active: boolean;
 };
 

@@ -6,6 +6,8 @@ export type Seat = {
   number: number;
   /** 살 수 있는 자리인지. */
   free: boolean;
+  /** 이동식(장애인·동반석) 좌석인지. */
+  movable: boolean;
   x: number;
   y: number;
 };

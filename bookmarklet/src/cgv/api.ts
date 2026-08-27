@@ -86,7 +86,12 @@ type ScheduleRow = {
   scnendTm: string;
   frSeatCnt: string;
   cpSeatCnt: string;
+  /** 상영관 등급 코드. "03"이 아이맥스다. 실측으로 확인했다(docs/decisions/cgv-data-source.md). */
+  tcscnsGradCd: string;
 };
+
+/** 회차 조회는 한 지점의 모든 상영관(2D·4DX·IMAX 등)을 함께 돌려준다. 이 코드만 아이맥스다. */
+const IMAX_SCREEN_GRADE = "03";
 
 export async function fetchSchedules(
   siteNo: string,
@@ -98,7 +103,7 @@ export async function fetchSchedules(
   );
   if (!result.ok) return result;
 
-  const rows = result.data.data ?? [];
+  const rows = (result.data.data ?? []).filter((row) => row.tcscnsGradCd === IMAX_SCREEN_GRADE);
   const schedules = rows.map((row) => ({
     id: `${siteNo}-${date}-${row.scnsNo}-${row.scnSseq}`,
     screenNm: row.scnsNm,
@@ -120,7 +125,12 @@ type SeatRow = {
   seatSaleYn: string;
   xcoordStartVal: string;
   ycoordStartVal: string;
+  /** 판매 형태. "04"가 이동식(장애인·동반석)이다. 실측으로 확인했다(docs/decisions/cgv-data-source.md). */
+  seatSalfrmCd: string;
 };
+
+/** 이동식(장애인·동반석) 좌석 판매 형태 코드. 이 좌석을 감시에 포함할지는 조건마다 사용자가 정한다. */
+const MOVABLE_SEAT_FORM = "04";
 
 type SeatItem = {
   seats: SeatRow[] | null;
@@ -162,6 +172,7 @@ export async function fetchSeatMap(
         row: row.seatRowNm,
         number: Number(row.seatNo),
         free: row.seatSaleYn === "Y",
+        movable: row.seatSalfrmCd === MOVABLE_SEAT_FORM,
         x: Number(row.xcoordStartVal),
         y: Number(row.ycoordStartVal),
       });

@@ -3,6 +3,8 @@ import { PANEL_CSS } from "./styles";
 import type { ConditionDraft, PanelCallbacks, PanelState } from "./view";
 
 export const PANEL_ID = "imax-seat-watch-panel";
+/** 최소 주기이자 클릭 한 번의 증감 단위(0.5분)다. */
+const MIN_INTERVAL_SECONDS = 30;
 
 function today(): string {
   const now = new Date();
@@ -65,20 +67,37 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
   const body = el("div", { class: "body" });
   shell.append(body);
 
-  // 감시 상태 줄.
+  // 감시 상태 줄. "지금 확인"과 OS 알림 조작은 감시 조건을 보면서 누를 수 있도록
+  // 이 줄이 아니라 감시 조건 제목 옆에 둔다(drawConditions 참고).
   const watchingText = el("span", { class: "grow" });
-  const permissionButton = el("button", { class: "small" }, ["OS 알림 허용"]);
-  permissionButton.addEventListener("click", () => callbacks.onAskPermission());
-  const permissionText = el("span", { class: "badge" });
+  const watchingRow = el("div", { class: "watching" }, [watchingText]);
+  body.append(watchingRow);
+
+  const notifyButton = el("button", { class: "notifybtn" }, ["OS 알람"]);
+  notifyButton.addEventListener("click", () => callbacks.onToggleNotify());
+
+  const intervalInput = el("input", {
+    type: "number",
+    min: String(MIN_INTERVAL_SECONDS),
+    step: String(MIN_INTERVAL_SECONDS),
+  });
+  const intervalBox = el(
+    "span",
+    { class: "intervalbox", title: "짧을수록 CGV가 자동 접근으로 판단해 막을 위험이 커집니다." },
+    [intervalInput, "초마다"],
+  );
+  intervalInput.addEventListener("change", () => {
+    const raw = Number(intervalInput.value) || MIN_INTERVAL_SECONDS;
+    const rounded = Math.max(
+      MIN_INTERVAL_SECONDS,
+      Math.round(raw / MIN_INTERVAL_SECONDS) * MIN_INTERVAL_SECONDS,
+    );
+    intervalInput.value = String(rounded);
+    callbacks.onSetInterval(rounded);
+  });
+
   const checkButton = el("button", { class: "small" }, ["지금 확인"]);
   checkButton.addEventListener("click", () => callbacks.onCheckNow());
-  const watchingRow = el("div", { class: "watching" }, [
-    watchingText,
-    permissionButton,
-    permissionText,
-    checkButton,
-  ]);
-  body.append(watchingRow);
 
   const errorBox = el("div", { class: "error" });
   body.append(errorBox);
@@ -96,6 +115,7 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
   const seatsInput = el("input", { id: "seats", type: "number", min: "1", max: "8" });
   seatsInput.value = "2";
   const regionBox = el("div", { class: "regions" });
+  const movableInput = el("input", { id: "movable", type: "checkbox" });
   const addButton = el("button", { class: "action" }, ["조건 추가"]);
 
   addButton.addEventListener("click", () => {
@@ -110,6 +130,7 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
       toTime: toInput.value,
       regionIds,
       minimumSeats: Math.max(1, Number(seatsInput.value) || 1),
+      includeMovable: movableInput.checked,
     };
     callbacks.onAdd(draft);
   });
@@ -131,11 +152,22 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
       regionBox,
       el("label", { for: "seats" }, ["최소 연석 수"]),
       seatsInput,
+      el("label", { class: "checkrow", for: "movable" }, [
+        movableInput,
+        "이동식(장애인·동반석) 좌석도 포함",
+      ]),
       addButton,
     ]),
   );
 
-  const conditionSection = el("div");
+  // 헤더는 한 번만 만들어 붙인다. 조건 확인마다 자주 다시 그려지는 목록과 분리해 둬야
+  // "OS 알람"·확인 주기 같은 조작 요소가 매번 떨어졌다 붙지 않는다(입력 중 포커스가 끊기지 않게).
+  const conditionCountText = el("span", { class: "grow" });
+  const conditionList = el("div");
+  const conditionSection = el("div", {}, [
+    el("h2", {}, [conditionCountText, notifyButton, intervalBox, checkButton]),
+    conditionList,
+  ]);
   const alarmSection = el("div");
   body.append(conditionSection, alarmSection);
 
@@ -152,13 +184,11 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
   }
 
   function drawConditions(state: PanelState) {
-    conditionSection.replaceChildren();
-    conditionSection.append(
-      el("h2", {}, [el("span", { class: "grow" }, [`감시 조건 ${state.conditions.length}개`])]),
-    );
+    conditionCountText.textContent = `감시 조건 ${state.conditions.length}개`;
+    conditionList.replaceChildren();
 
     if (state.conditions.length === 0) {
-      conditionSection.append(el("div", { class: "empty" }, ["등록한 조건이 없습니다."]));
+      conditionList.append(el("div", { class: "empty" }, ["등록한 조건이 없습니다."]));
       return;
     }
 
@@ -189,7 +219,7 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
         ]),
       );
     }
-    conditionSection.append(list);
+    conditionList.append(list);
   }
 
   function drawAlarms(state: PanelState) {
@@ -262,14 +292,23 @@ export function createPanel(callbacks: PanelCallbacks): Panel {
     watchingText.textContent = state.watching;
     dot.className = `dot ${state.watchingActive ? "" : "off"}`;
 
-    permissionButton.style.display = state.permission === "default" ? "" : "none";
-    permissionText.style.display = state.permission === "default" ? "none" : "";
-    permissionText.textContent =
-      state.permission === "granted"
-        ? "OS 알림 켜짐"
-        : state.permission === "denied"
-          ? "OS 알림 꺼짐"
-          : "OS 알림 미지원";
+    notifyButton.style.display = state.permission === "unsupported" ? "none" : "";
+    notifyButton.classList.toggle("on", state.permission === "granted" && state.osNotifyOn);
+    notifyButton.disabled = state.permission === "denied";
+    notifyButton.title =
+      state.permission === "denied"
+        ? "브라우저가 알림을 막았습니다. 브라우저의 사이트 설정에서 직접 허용해야 합니다."
+        : state.permission === "granted"
+          ? state.osNotifyOn
+            ? "누르면 OS 알림을 끕니다"
+            : "누르면 OS 알림을 켭니다"
+          : "누르면 OS 알림 권한을 요청합니다";
+
+    // 입력 중에 값을 되돌려 타이핑을 끊지 않는다.
+    // shadow DOM 안의 포커스는 document.activeElement가 아니라 root.activeElement로 봐야 한다.
+    if (root.activeElement !== intervalInput) {
+      intervalInput.value = String(state.intervalSeconds);
+    }
 
     errorBox.style.display = state.error ? "" : "none";
     errorBox.textContent = state.error ?? "";
