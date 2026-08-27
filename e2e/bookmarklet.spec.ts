@@ -500,40 +500,40 @@ test("확인 주기를 바꾸면 그 주기로 다시 확인이 돈다", async (
   await expect(page.getByTestId("condition")).toContainText("회차 1개 확인");
 
   const intervalInput = page.locator(".intervalbox input");
-  await expect(intervalInput).toHaveValue("60");
+  await expect(intervalInput).toHaveValue("1");
 
-  await intervalInput.fill("30");
+  await intervalInput.fill("0.5");
   await intervalInput.blur();
-  await expect(intervalInput).toHaveValue("30");
+  await expect(intervalInput).toHaveValue("0.5");
 
   // 자리를 풀어두면, 수동으로 "지금 확인"을 누르지 않아도 짧아진 주기 안에 알람이 뜬다.
   state.schedules = withCenterPair().schedules;
   await expect(page.getByTestId("alarm")).toHaveCount(1, { timeout: 40_000 });
 });
 
-test("30초보다 작은 값을 넣으면 30초로 맞춰진다", async ({ page }) => {
+test("0.5분보다 작은 값을 넣으면 0.5분(30초)으로 맞춰진다", async ({ page }) => {
   await serveFakeCgv(page, soldOut());
   await openPanel(page);
 
   const intervalInput = page.locator(".intervalbox input");
-  await intervalInput.fill("3");
+  await intervalInput.fill("0.1");
   await intervalInput.blur();
 
-  await expect(intervalInput).toHaveValue("30");
+  await expect(intervalInput).toHaveValue("0.5");
 });
 
-test("한 클릭에 0.5분(30초)씩 오르내린다", async ({ page }) => {
+test("한 클릭에 0.5분씩 오르내린다", async ({ page }) => {
   await serveFakeCgv(page, soldOut());
   await openPanel(page);
 
   const intervalInput = page.locator(".intervalbox input");
-  await expect(intervalInput).toHaveValue("60");
+  await expect(intervalInput).toHaveValue("1");
 
   await intervalInput.focus();
   await intervalInput.press("ArrowUp");
-  await expect(intervalInput).toHaveValue("90");
+  await expect(intervalInput).toHaveValue("1.5");
 
   await intervalInput.press("ArrowDown");
   await intervalInput.press("ArrowDown");
-  await expect(intervalInput).toHaveValue("30");
+  await expect(intervalInput).toHaveValue("0.5");
 });
